@@ -171,12 +171,15 @@ func list() error {
 		}
 		// An unset model is not blank space — it is a decision left to the
 		// agent, and worth seeing next to the ones you made yourself.
-		model := a.Model
-		if model == "" {
+		agent, model := a.Agent, a.Model
+		if a.Command != "" {
+			// A command has no agent and so no model to leave to one.
+			agent, model = "command", "-"
+		} else if model == "" {
 			model = "agent default"
 		}
 		fmt.Printf("%-24s %-16s %-9s %-8s %-13s %s\n",
-			name, a.Cron, a.Workspace, a.Agent, model, last)
+			name, a.Cron, a.Workspace, agent, model, last)
 	}
 	printDiagnostics(cfg)
 	printStoppedSessions(cfg)

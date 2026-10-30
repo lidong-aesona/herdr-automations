@@ -307,7 +307,7 @@ export default class Automations extends View {
       .child(h_flex().gap(7).items_center().child(this.dot(a, t)).child(div().flex_1().min_w(0).truncate().font_semibold().child(a.name))
         .child(this.button(`run-${a.name}`, "▶", t, (cx) => this.act(cx, ["run", a.name, "--bg"]), { px: 6, h: 22 })))
       .child(div().pl(15).text_size(11).text_color(t.muted).truncate().child(sub))
-      .child(div().pl(15).text_size(11).text_color(t.dim).truncate().child(`${a.template ? "template " + a.template : a.agent + (a.model ? " · " + a.model : "")} · ${a.workspace}`));
+      .child(div().pl(15).text_size(11).text_color(t.dim).truncate().child(`${a.command ? "command" : a.template ? "template " + a.template : a.agent + (a.model ? " · " + a.model : "")} · ${a.workspace}`));
   }
 
   renderDetail(t, cx) {
@@ -332,7 +332,7 @@ export default class Automations extends View {
         .child(kv("Next", a.disabled ? "paused" : this.list.paused ? "held: all paused" : until(a.next)))
         .child(kv("Repo", tilde(a.repo)))
         .child(kv("Runs in", WORKSPACES.find(([w]) => w === a.workspace)?.[1] ?? a.workspace))
-        .child(kv(a.template ? "Template" : "Agent", a.template || `${a.agent}${a.model ? " · " + a.model : ""}`)))
+        .when(!a.command, (el) => el.child(kv(a.template ? "Template" : "Agent", a.template || `${a.agent}${a.model ? " · " + a.model : ""}`))))
       .child(div().p(8).rounded(7).bg(t.raised).text_size(12).text_color(t.muted).child(a.prompt || a.workflow || a.command || ""))
       .child(div().pt(4).text_size(11).font_semibold().text_color(t.dim).child("HISTORY"))
       .children(runs.length ? runs.map((r) => h_flex().id(`h-${r.run_id}`).gap(8).px(6).py(4).rounded(6).items_center().cursor_pointer()
