@@ -372,3 +372,17 @@ func TestARunNamingNoSessionHappensWhereItWasTriggered(t *testing.T) {
 		t.Fatalf("bound to %q, session = %+v; want unbound, recorded as alt", ops.session, s)
 	}
 }
+
+func TestDoPicksTheCommandAdapterWhenOneIsNamed(t *testing.T) {
+	var command []string
+	ops := &fakeOps{paneRun: func(_ string, c ...string) error { command = c; return nil }}
+	ops.paneRead = func(string, int) (string, error) { return markerIn(command) + ":0\n", nil }
+	h := &live{ops: ops, knobs: fast()}
+
+	if err := h.Do(Session{PaneID: "p"}, config.Automation{Command: "./tick.sh"}, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if ops.starts != 0 || len(command) < 3 || !strings.Contains(command[2], "./tick.sh") {
+		t.Fatalf("starts=%d command=%v, want the command run in the pane", ops.starts, command)
+	}
+}

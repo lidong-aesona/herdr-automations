@@ -69,10 +69,15 @@ type Automation struct {
 	// The value is passed through untouched: model names move faster than any
 	// list we could keep here, so a typo surfaces when the agent refuses it.
 	Model string `yaml:"model,omitempty"`
-	// Prompt submitted to the agent. Mutually exclusive with Workflow.
+	// Prompt submitted to the agent. Exactly one of Prompt, Workflow and
+	// Command is set.
 	Prompt string `yaml:"prompt,omitempty"`
 	// Workflow delegates execution to herdr-workflows: `hwf run <name>`.
 	Workflow string `yaml:"workflow,omitempty"`
+	// Command is a shell line run with `sh -c` in the run's directory, for
+	// work that is a program rather than an agent. Exit 0 is success. No agent
+	// runs, so Agent, Template, Model, MCPConfig and AgentArgs are refused.
+	Command string `yaml:"command,omitempty"`
 	// MCPConfig is a path to an MCP servers JSON passed to the agent
 	// (claude: --mcp-config). Sugar over AgentArgs.
 	MCPConfig string `yaml:"mcp_config,omitempty"`
@@ -133,7 +138,7 @@ func (a *Automation) applyDefaults() {
 	if a.Workspace == "" {
 		a.Workspace = WorkspaceWorktree
 	}
-	if a.Agent == "" {
+	if a.Agent == "" && a.Command == "" {
 		a.Agent = "claude"
 	}
 	if a.TimeoutMinutes <= 0 {
@@ -165,8 +170,8 @@ func (a *Automation) validate(backend Backend) error {
 	if a.Repo == "" {
 		return fmt.Errorf("%s: missing repo", a.Name)
 	}
-	if (a.Prompt == "") == (a.Workflow == "") {
-		return fmt.Errorf("%s: exactly one of prompt or workflow is required", a.Name)
+	if kinds := btoi(a.Prompt != "") + btoi(a.Workflow != "") + btoi(a.Command != ""); kinds != 1 {
+		return fmt.Errorf("%s: exactly one of prompt, workflow or command is required", a.Name)
 	}
 	if a.Workspace != WorkspaceWorktree && a.Workspace != WorkspaceRoot && a.Workspace != WorkspaceExisting {
 		return fmt.Errorf("%s: workspace must be worktree, root or existing, got %q", a.Name, a.Workspace)
@@ -188,7 +193,7 @@ func (a *Automation) validate(backend Backend) error {
 	if a.Template != "" && backend != BackendHC {
 		return fmt.Errorf("%s: template requires backend: hc", a.Name)
 	}
-	if a.Template == "" && backend == BackendHC && !KindTakesPromptArg(a.Agent) {
+	if a.Template == "" && a.Command == "" && backend == BackendHC && !KindTakesPromptArg(a.Agent) {
 		return fmt.Errorf("%s: agent %q cannot take its prompt under backend: hc yet (claude, codex and pi can)", a.Name, a.Agent)
 	}
 	if a.Workflow != "" && backend == BackendHC {
@@ -308,6 +313,14 @@ func parse(raw []byte) (*Config, error) {
 			})
 			continue
 		}
+		// Also before the defaults: a command would otherwise get claude.
+		if a.Command != "" && (a.Agent != "" || a.Template != "" || a.Model != "" || a.MCPConfig != "" || len(a.AgentArgs) > 0) {
+			cfg.Invalid = append(cfg.Invalid, Diagnostic{
+				Name: a.Name, Line: a.Line,
+				Message: fmt.Sprintf("%s: command runs a program, not an agent; drop agent, template, model, mcp_config and agent_args", a.Name),
+			})
+			continue
+		}
 		a.applyDefaults()
 		a.Repo = expandHome(a.Repo)
 		a.MCPConfig = expandHome(a.MCPConfig)
@@ -424,4 +437,11 @@ func expandHome(p string) string {
 		return filepath.Join(home, p[2:])
 	}
 	return p
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

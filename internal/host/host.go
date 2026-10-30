@@ -120,10 +120,10 @@ func (h *live) Do(s Session, a config.Automation, timeout time.Duration) error {
 	return h.in(a).workFor(a).do(s, timeout)
 }
 
-// work is one way of getting an automation's work done in a session. Two
-// adapters satisfy it — an agent taking a prompt, and a herdr-workflows
-// delegation — and they share nothing but the question they answer: did it
-// work?
+// work is one way of getting an automation's work done in a session. Three
+// adapters satisfy it — an agent taking a prompt, a herdr-workflows
+// delegation, and a command — and they share nothing but the question they
+// answer: did it work?
 type work interface {
 	do(s Session, timeout time.Duration) error
 }
@@ -131,6 +131,9 @@ type work interface {
 func (h *live) workFor(a config.Automation) work {
 	if a.Workflow != "" {
 		return hwfWork{ops: h.ops, knobs: h.knobs, name: a.Workflow}
+	}
+	if a.Command != "" {
+		return commandWork{ops: h.ops, knobs: h.knobs, command: a.Command}
 	}
 	return agentWork{ops: h.ops, knobs: h.knobs, a: a}
 }

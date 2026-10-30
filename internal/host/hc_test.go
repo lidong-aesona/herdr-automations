@@ -182,3 +182,67 @@ func TestHCDo(t *testing.T) {
 		})
 	}
 }
+
+func hcCommand() config.Automation {
+	return config.Automation{
+		Name: "Tick", Repo: "/src/estate", Workspace: config.WorkspaceExisting, WorkspaceID: "sp1",
+		Command: "./tick.sh /src/estate",
+	}
+}
+
+func TestHCProvisionRunsACommandThroughTheShell(t *testing.T) {
+	f := &fakeHC{}
+	if _, err := newHCTest(f).Provision(hcCommand()); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(f.argv, "|"); got != "sh|-c|./tick.sh /src/estate" {
+		t.Fatalf("argv %q", got)
+	}
+}
+
+// A command reports no agent status: only its exit says how it went, and a
+// long quiet run is not a stuck dialog.
+func TestHCDoCommand(t *testing.T) {
+	zero, three := 0, 3
+	cases := []struct {
+		name  string
+		waits []hc.Wait
+		term  hc.Terminal
+		want  string // "" = success, "cancelled" = ErrCancelled, else a substring
+	}{
+		{name: "exit 0", waits: []hc.Wait{{Ended: true, Reason: "exit", ExitCode: &zero}},
+			term: hc.Terminal{State: "finished", Reason: "exited", ExitCode: &zero}},
+		{name: "quiet for longer than paneReady, then exit 0", waits: []hc.Wait{
+			{Reason: "timeout"}, {Reason: "message"}, {Reason: "timeout"},
+			{Ended: true, Reason: "exit", ExitCode: &zero},
+		}, term: hc.Terminal{State: "finished", Reason: "exited", ExitCode: &zero}},
+		{name: "nonzero exit", waits: []hc.Wait{{Ended: true, Reason: "exit", ExitCode: &three}},
+			term: hc.Terminal{State: "finished", Reason: "exited", ExitCode: &three}, want: "command exited with code 3"},
+		{name: "exit code only on the terminal", waits: []hc.Wait{{Ended: true, Reason: "exit"}},
+			term: hc.Terminal{State: "finished", Reason: "exited", ExitCode: &three}, want: "command exited with code 3"},
+		{name: "killed", waits: []hc.Wait{{Ended: true, Reason: "exit"}},
+			term: hc.Terminal{State: "finished", Reason: "killed"}, want: "cancelled"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := &fakeHC{waits: c.waits, term: c.term, delay: 15 * time.Millisecond}
+			err := newHCTest(f).Do(Session{PaneID: "t7"}, hcCommand(), time.Second)
+			switch {
+			case c.want == "" && err != nil:
+				t.Fatalf("want success, got %v", err)
+			case c.want == "cancelled" && !errors.Is(err, ErrCancelled):
+				t.Fatalf("want cancelled, got %v", err)
+			case c.want != "" && c.want != "cancelled" && (err == nil || !strings.Contains(err.Error(), c.want)):
+				t.Fatalf("want %q, got %v", c.want, err)
+			}
+		})
+	}
+}
+
+func TestHCDoCommandStillRunningAtTheDeadline(t *testing.T) {
+	f := &fakeHC{}
+	err := newHCTest(f).Do(Session{PaneID: "t7"}, hcCommand(), 5*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "command was still running after") {
+		t.Fatalf("got %v", err)
+	}
+}

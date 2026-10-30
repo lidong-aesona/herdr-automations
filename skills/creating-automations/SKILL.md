@@ -48,7 +48,14 @@ Instead of `prompt`, an entry may delegate to a herdr-workflows workflow:
     workflow: nightly-deps        # runs `hwf run nightly-deps` in the pane
 ```
 
-Exactly one of `prompt` / `workflow` is required.
+Or run a program with no agent at all; exit 0 is success:
+
+```yaml
+    command: ./scripts/nightly.sh   # runs with sh -c in the run's directory
+```
+
+Exactly one of `prompt` / `workflow` / `command` is required. A `command` takes
+no `agent`, `template`, `model`, `mcp_config` or `agent_args`.
 
 ## Rules
 

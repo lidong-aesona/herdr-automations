@@ -407,6 +407,50 @@ func TestTemplateNeedsTheHCBackendAndNoAgent(t *testing.T) {
 	}
 }
 
+// A command is a program, not an agent: it runs under either backend, and
+// everything that configures an agent is refused rather than ignored.
+func TestCommandRunsAProgramAndRefusesAgentSettings(t *testing.T) {
+	entry := func(extra string) string {
+		return `
+  - name: c
+    cron: "@daily"
+    repo: /x
+    command: ./tick.sh` + extra
+	}
+	cases := []struct {
+		backend, extra, want string
+	}{
+		{"hc", "", ""},
+		{"herdr", "", ""},
+		{"hc", "\n    prompt: p", "exactly one of prompt, workflow or command"},
+		{"herdr", "\n    workflow: w", "exactly one of prompt, workflow or command"},
+		{"hc", "\n    agent: codex", "command runs a program, not an agent"},
+		{"hc", "\n    model: opus", "command runs a program, not an agent"},
+		{"hc", "\n    template: reviewer", "command runs a program, not an agent"},
+		{"hc", "\n    mcp_config: /m.json", "command runs a program, not an agent"},
+		{"hc", "\n    agent_args: [--x]", "command runs a program, not an agent"},
+	}
+	for _, c := range cases {
+		withConfig(t, "backend: "+c.backend+"\nautomations:"+entry(c.extra)+"\n")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.want == "" {
+			if len(cfg.Automations) != 1 {
+				t.Fatalf("%s%s: expected it to load, got %+v", c.backend, c.extra, cfg.Invalid)
+			}
+			if a := cfg.Automations[0]; a.Command != "./tick.sh" || a.Agent != "" {
+				t.Fatalf("%s: command %q agent %q, want ./tick.sh and no agent", c.backend, a.Command, a.Agent)
+			}
+			continue
+		}
+		if len(cfg.Invalid) != 1 || !strings.Contains(cfg.Invalid[0].Message, c.want) {
+			t.Fatalf("%s%s: want %q, got %+v", c.backend, c.extra, c.want, cfg.Invalid)
+		}
+	}
+}
+
 // herdr-workflows drives the TUI's server; under hc it would start nothing.
 func TestWorkflowIsRefusedUnderHC(t *testing.T) {
 	withConfig(t, `backend: hc

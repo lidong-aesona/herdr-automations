@@ -247,6 +247,7 @@ automations:
     model: sonnet                 # optional → --model; kinds without the flag are caught on load
     template: reviewer            # hc only, instead of agent + model: an hc template, prompt as its task
     prompt: "…"                   # OR workflow: <name>  (delegates to hwf run)
+                                  # OR command: <shell line>  (no agent; exit 0 is success)
     mcp_config: ~/.config/mcp/github.json   # optional → --mcp-config
     agent_args: ["--verbose"]               # optional, verbatim agent flags
     timeout_minutes: 60           # optional bound on the run
@@ -367,6 +368,13 @@ chore is a sequence, put the sequence in a
 schedule it with `workflow: <name>` instead of `prompt:`. The run waits for the
 workflow and fails when it does, and it refuses to start at all when `hwf` isn't
 installed.
+
+**What about a script that needs no agent?** Schedule it with `command: <shell
+line>` instead of `prompt:`. It runs with `sh -c` in the run's directory and the
+run succeeds when it exits 0. Nothing about an agent applies, so `agent`,
+`template`, `model`, `mcp_config` and `agent_args` are refused next to it. It
+runs under both backends, and gets the same catch-up, overlap and history as
+any other automation.
 
 **Event triggers? On push, on PR?** No, and not planned. Herdr's plugin manifest does
 support `[[events]]`, but the full list, as of Herdr 0.8.2, is workspace lifecycle and

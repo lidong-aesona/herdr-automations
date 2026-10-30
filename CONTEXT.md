@@ -6,7 +6,7 @@ Herdr term, the Herdr meaning wins — this is a plugin, not a peer.
 ## The things
 
 **Automation** — one entry in `automations.yaml`: a cron expression, a repo, and
-either a prompt or a workflow to delegate to. The unit the user thinks in. Never
+a prompt, a workflow to delegate to, or a command to run. The unit the user thinks in. Never
 "job", "task" or "schedule".
 
 **Occurrence** — one moment a cron expression comes due. An automation has
@@ -27,9 +27,10 @@ in prose, prefer **Herdr session** for the other one.
 machine. Workspace and pane IDs mean something only inside one. `session:` in
 `automations.yaml` names a Herdr session, never the term above.
 
-**Work** — what a run actually does in its session. Two kinds: an *agent* taking
-a prompt, or an *hwf delegation* handing off to herdr-workflows. Both answer the
-same question — did it work?
+**Work** — what a run actually does in its session. Three kinds: an *agent* taking
+a prompt, an *hwf delegation* handing off to herdr-workflows, or a *command*, a
+program whose exit status is the verdict. All answer the same question — did it
+work?
 
 **Diagnostic** — an entry in `automations.yaml` that did not load, plus the line
 to go and fix. Not an error: the rest of the file still runs.

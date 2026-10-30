@@ -2,6 +2,7 @@ package host
 
 import (
 	"errors"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -133,5 +134,29 @@ func TestExitCodeTakesTheLastRun(t *testing.T) {
 func TestShellQuoteSurvivesAnApostrophe(t *testing.T) {
 	if got := shellQuote("it's"); got != `'it'\''s'` {
 		t.Fatalf("got %s", got)
+	}
+}
+
+func TestCommandSucceedsOnZeroAndFailsOnAnExitInsideIt(t *testing.T) {
+	// Run the real shell: the line's own exit must not skip the marker.
+	for line, want := range map[string]string{
+		"true # trailing comment": "",
+		"exit 4":                  "exited with code 4",
+	} {
+		var out []byte
+		ops := &fakeOps{paneRun: func(_ string, c ...string) error {
+			var err error
+			out, err = exec.Command(c[0], c[1:]...).CombinedOutput()
+			var exit *exec.ExitError
+			if errors.As(err, &exit) {
+				err = nil
+			}
+			return err
+		}}
+		ops.paneRead = func(string, int) (string, error) { return string(out), nil }
+		err := commandWork{ops: ops, knobs: fast(), command: line}.do(Session{PaneID: "p"}, time.Minute)
+		if want == "" && err != nil || want != "" && (err == nil || !strings.Contains(err.Error(), want)) {
+			t.Fatalf("%q: got %v, want %q", line, err, want)
+		}
 	}
 }

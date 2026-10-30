@@ -19,6 +19,7 @@ const PRESETS = [
 // The form offers the ones installed here.
 const AGENTS = ["claude", "codex", "pi"];
 const WORKSPACES = [["worktree", "New worktree"], ["root", "Repo root"], ["existing", "Existing space"]];
+const KINDS = [["prompt", "Agent prompt"], ["workflow", "Workflow"], ["command", "Command"]];
 const FINISHED = new Set(["done", "failed", "cancelled"]);
 
 const human = (cron) => PRESETS.find(([, c]) => c === cron)?.[0] ?? cron;
@@ -135,12 +136,14 @@ export default class Automations extends View {
       return s;
     };
     this.form = {
+      // Which of prompt, workflow and command this entry runs; saving keeps it.
+      kind: a.command ? "command" : a.workflow ? "workflow" : "prompt",
       original, workspace: a.workspace ?? "worktree", workspace_id: a.workspace_id ?? "",
       agent: a.template ? "" : a.agent ?? "claude", template: a.template ?? "",
       name: field(a.name, "issue-triage"), cron: field(a.cron, "0 9 * * 1-5"), repo: field(tilde(a.repo), "~/Projects/myapp"),
       model: field(a.model, "agent default"), timeout: field(String(a.timeout_minutes ?? 60), "60"),
       mcp: field(tilde(a.mcp_config), "optional: path to an MCP servers JSON"),
-      prompt: TextareaState.new({ placeholder: "What should the agent do each time?", value: a.prompt ?? "" }),
+      prompt: TextareaState.new({ placeholder: "What should the agent do each time?", value: a.command || a.workflow || a.prompt || "" }),
       result: null, seq: 0,
     };
     this.form.prompt.set_auto_grow(4, 12);
@@ -157,11 +160,17 @@ export default class Automations extends View {
   entry() {
     const f = this.form, num = parseInt(f.timeout.value(), 10);
     const expand = (p) => (p.startsWith("~/") ? home() + p.slice(1) : p);
+    // A command runs a program, so it takes none of the agent fields.
+    if (f.kind === "command") return {
+      name: f.name.value().trim(), cron: f.cron.value().trim(), repo: expand(f.repo.value().trim()),
+      workspace: f.workspace, workspace_id: f.workspace === "existing" ? f.workspace_id : "",
+      command: f.prompt.value(), timeout_minutes: Number.isFinite(num) ? num : 0,
+    };
     return {
       name: f.name.value().trim(), cron: f.cron.value().trim(), repo: expand(f.repo.value().trim()),
       workspace: f.workspace, workspace_id: f.workspace === "existing" ? f.workspace_id : "",
       agent: f.template ? "" : f.agent, template: f.template, model: f.template ? "" : f.model.value().trim(),
-      prompt: f.prompt.value(), mcp_config: expand(f.mcp.value().trim()), timeout_minutes: Number.isFinite(num) ? num : 0,
+      [f.kind]: f.prompt.value(), mcp_config: expand(f.mcp.value().trim()), timeout_minutes: Number.isFinite(num) ? num : 0,
     };
   }
 
@@ -324,7 +333,7 @@ export default class Automations extends View {
         .child(kv("Repo", tilde(a.repo)))
         .child(kv("Runs in", WORKSPACES.find(([w]) => w === a.workspace)?.[1] ?? a.workspace))
         .child(kv(a.template ? "Template" : "Agent", a.template || `${a.agent}${a.model ? " · " + a.model : ""}`)))
-      .child(div().p(8).rounded(7).bg(t.raised).text_size(12).text_color(t.muted).child(a.prompt || a.workflow || ""))
+      .child(div().p(8).rounded(7).bg(t.raised).text_size(12).text_color(t.muted).child(a.prompt || a.workflow || a.command || ""))
       .child(div().pt(4).text_size(11).font_semibold().text_color(t.dim).child("HISTORY"))
       .children(runs.length ? runs.map((r) => h_flex().id(`h-${r.run_id}`).gap(8).px(6).py(4).rounded(6).items_center().cursor_pointer()
         .hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.open(r, cx))
@@ -346,7 +355,7 @@ export default class Automations extends View {
     const offered = AGENTS.filter((a) => !this.installed || this.installed.includes(a) || a === f.agent);
     const agents = [...offered.map((a) => [a, a]), ...(this.templates ?? []).map((tp) => [`template:${tp.name}`, `${tp.name} (template)`])];
     const agentValue = f.template ? `template:${f.template}` : f.agent;
-    const res = f.result;
+    const res = f.result, agentic = f.kind !== "command";
     return v_flex().p(14).gap(4)
       .child(div().text_size(15).font_semibold().child(f.original ? `Edit ${f.original}` : "New automation"))
       .child(label("NAME")).child(input("f-name", f.name))
@@ -362,15 +371,16 @@ export default class Automations extends View {
       .when(f.workspace === "existing", (el) => el.child(this.pills("f-space",
         spaces().filter((s) => !s.machine).map((s) => [s.id, s.name]), f.workspace_id, t,
         (v, cx) => { f.workspace_id = v; this.preview(cx); cx.notify(); })))
-      .child(label("AGENT")).child(this.pills("f-agent", agents, agentValue, t, (v, cx) => {
+      .child(label("RUNS")).child(this.pills("f-kind", KINDS, f.kind, t, (v, cx) => { f.kind = v; this.preview(cx); cx.notify(); }))
+      .when(agentic, (el) => el.child(label("AGENT")).child(this.pills("f-agent", agents, agentValue, t, (v, cx) => {
         if (v.startsWith("template:")) { f.template = v.slice(9); f.agent = ""; } else { f.template = ""; f.agent = v; }
         this.preview(cx); cx.notify();
-      }))
-      .when(!f.template, (el) => el.child(label("MODEL")).child(input("f-model", f.model)))
-      .child(label("PROMPT")).child(div().id("f-prompt").p(8).rounded(7).border_1().border_color(t.input)
+      })))
+      .when(agentic && !f.template, (el) => el.child(label("MODEL")).child(input("f-model", f.model)))
+      .child(label(f.kind.toUpperCase())).child(div().id("f-prompt").p(8).rounded(7).border_1().border_color(t.input)
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).child(Textarea.new(f.prompt).w_full().text_size(12)))
       .child(label("TIMEOUT (MINUTES)")).child(input("f-timeout", f.timeout))
-      .child(label("MCP CONFIG")).child(input("f-mcp", f.mcp))
+      .when(agentic, (el) => el.child(label("MCP CONFIG")).child(input("f-mcp", f.mcp)))
       .child(div().pt(8).text_size(12)
         .when(Boolean(res?.problem), (el) => el.text_color(t.ansi1).child(res.problem))
         .when(Boolean(res && !res.problem && res.next), (el) => el.text_color(t.muted)

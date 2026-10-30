@@ -90,6 +90,9 @@ func (h *hcHost) worktree(a config.Automation) (string, error) {
 
 // Do waits for the agent to finish its turn.
 func (h *hcHost) Do(s Session, a config.Automation, timeout time.Duration) error {
+	if a.Command != "" {
+		return h.doCommand(s, timeout)
+	}
 	deadline := time.Now().Add(timeout)
 	started := time.Now()
 	turn, working := 0, false
@@ -143,6 +146,42 @@ func (h *hcHost) reportsWork(s Session) bool {
 
 // exitOutcome tells a run called off from one that crashed: closing the
 // run's space in the app kills its terminal; a crash exits on its own.
+// doCommand waits for a command to exit. A program reports no agent status,
+// so nothing short of its exit says it is done, and a long quiet run is just
+// a long run. Like an agent past its timeout, it is left running.
+func (h *hcHost) doCommand(s Session, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return fmt.Errorf("the command was still running after %s", timeout)
+		}
+		w, err := h.ops.Wait(s.PaneID, min(h.knobs.waitSlice, remaining))
+		if err != nil {
+			log.Printf("could not wait on %s (%v), recording it as cancelled", s.PaneID, err)
+			return ErrCancelled
+		}
+		if w.Reason != "exit" {
+			continue
+		}
+		t, err := h.ops.Get(s.PaneID)
+		if err != nil || t.Reason == "killed" {
+			return ErrCancelled
+		}
+		code := t.ExitCode
+		if code == nil {
+			code = w.ExitCode
+		}
+		switch {
+		case code == nil:
+			return fmt.Errorf("the command exited without an exit code")
+		case *code != 0:
+			return fmt.Errorf("the command exited with code %d", *code)
+		}
+		return nil
+	}
+}
+
 func (h *hcHost) exitOutcome(s Session) error {
 	t, err := h.ops.Get(s.PaneID)
 	if err != nil || t.Reason == "killed" {
@@ -157,6 +196,9 @@ func (h *hcHost) exitOutcome(s Session) error {
 // hcArgv is what hc runs: a template and its task, or the agent with its
 // flags and the prompt as its first message.
 func hcArgv(a config.Automation) ([]string, error) {
+	if a.Command != "" {
+		return []string{"sh", "-c", a.Command}, nil
+	}
 	if a.Template != "" {
 		return []string{a.Template, a.Prompt}, nil
 	}
